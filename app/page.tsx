@@ -1,101 +1,244 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "./contexts/AuthContext";
+import { createPayment } from "./services/paymentService";
+import {
+  getPayedToDefaults,
+  getPayedFromDefaults,
+} from "./services/defaultsService";
+import Navbar from "./components/navigation/Navbar";
+
+// Add currency symbol mapping
+const currencySymbols: { [key: string]: string } = {
+  INR: "₹",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const router = useRouter();
+  const { user, isLoading, tokens } = useAuth();
+  const [formData, setFormData] = useState({
+    amount: "",
+    currency: "INR",
+    payedFrom: "",
+    payedTo: "",
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [currency, setCurrency] = useState("INR");
+  const [payedToOptions, setPayedToOptions] = useState<string[]>([]);
+  const [payedFromOptions, setPayedFromOptions] = useState<string[]>([]);
+  const [isOtherPayedTo, setIsOtherPayedTo] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, isLoading, router]);
+
+  // Fetch defaults when component mounts
+  useEffect(() => {
+    if (tokens?.accessToken) {
+      loadDefaults();
+    }
+  }, [tokens]);
+
+  const loadDefaults = async () => {
+    try {
+      const [toDefaults, fromDefaults] = await Promise.all([
+        getPayedToDefaults(tokens?.accessToken!),
+        getPayedFromDefaults(tokens?.accessToken!),
+      ]);
+      setPayedToOptions(toDefaults);
+      setPayedFromOptions(fromDefaults);
+
+      // Set first options as default values if available
+      if (toDefaults.length > 0) {
+        setFormData((prev) => ({ ...prev, payedTo: toDefaults[0] }));
+      }
+      if (fromDefaults.length > 0) {
+        setFormData((prev) => ({ ...prev, payedFrom: fromDefaults[0] }));
+      }
+    } catch (error) {
+      console.error("Failed to load defaults:", error);
+    }
+  };
+
+  const handlePayedToChange = (value: string) => {
+    if (value === "other") {
+      setIsOtherPayedTo(true);
+      setFormData({ ...formData, payedTo: "" });
+    } else {
+      setIsOtherPayedTo(false);
+      setFormData({ ...formData, payedTo: value });
+    }
+  };
+
+  const handlePayedFromChange = (value: string) => {
+    setFormData({ ...formData, payedFrom: value });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+
+    try {
+      if (!tokens?.accessToken) throw new Error("Not authenticated");
+
+      await createPayment(
+        {
+          amount: parseFloat(formData.amount),
+          currency: formData.currency,
+          payedFrom: formData.payedFrom,
+          payedTo: formData.payedTo,
+        },
+        tokens.accessToken
+      );
+
+      // Reset form
+      setFormData({
+        amount: "",
+        currency: "INR",
+        payedFrom: "",
+        payedTo: "",
+      });
+    } catch (err) {
+      setError("Failed to create payment");
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen bg-background pb-16">
+      <main className="container mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold mb-8">Add Payment</h1>
+
+        <form onSubmit={handleSubmit} className="max-w-md space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+              Amount
+            </label>
+            <div className="flex gap-2">
+              <select
+                value={formData.currency}
+                onChange={(e) =>
+                  setFormData({ ...formData, currency: e.target.value })
+                }
+                className="w-24 p-2 border rounded-md bg-white dark:bg-gray-800"
+                required
+              >
+                <option value="INR">INR</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="GBP">GBP</option>
+              </select>
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                  {currencySymbols[formData.currency]}
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.amount}
+                  onChange={(e) =>
+                    setFormData({ ...formData, amount: e.target.value })
+                  }
+                  className="w-full p-2 pl-7 border rounded-md bg-white dark:bg-gray-800"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="payedFrom"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2"
+            >
+              Payed From
+            </label>
+            <select
+              id="payedFrom"
+              value={formData.payedFrom}
+              onChange={(e) => handlePayedFromChange(e.target.value)}
+              className="w-full p-2 border rounded-md bg-white dark:bg-gray-800"
+              required
+            >
+              {payedFromOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="payedTo"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2"
+            >
+              Payed To
+            </label>
+            <select
+              id="payedTo"
+              value={isOtherPayedTo ? "other" : formData.payedTo}
+              onChange={(e) => handlePayedToChange(e.target.value)}
+              className="w-full p-2 border rounded-md bg-white dark:bg-gray-800 mb-2"
+              required
+            >
+              {payedToOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+              <option value="other">Other</option>
+            </select>
+            {isOtherPayedTo && (
+              <input
+                type="text"
+                value={formData.payedTo}
+                onChange={(e) =>
+                  setFormData({ ...formData, payedTo: e.target.value })
+                }
+                placeholder="Enter custom payed to"
+                className="w-full p-2 border rounded-md bg-white dark:bg-gray-800"
+                required
+              />
+            )}
+          </div>
+
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+            {isSubmitting ? "Adding Payment..." : "Add Payment"}
+          </button>
+        </form>
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+      <Navbar />
     </div>
   );
 }
