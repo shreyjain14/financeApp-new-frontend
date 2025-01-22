@@ -2,17 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import {
-  getPayments,
-  deletePayment,
-  getSharedUserPayments,
-} from "../services/paymentService";
+import { getPayments, deletePayment } from "../services/paymentService";
 import { Payment } from "../types/payment";
 import Navbar from "../components/navigation/Navbar";
 import { Toast } from "../components/ui/Toast";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { DateFilter } from "../components/ui/DateFilter";
-import { getSharedToMeUsers } from "../services/defaultsService";
 
 export default function Payments() {
   const { user, tokens } = useAuth();
@@ -21,9 +16,9 @@ export default function Payments() {
   const [error, setError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const refreshTimerRef = useRef<NodeJS.Timeout>();
-  const pullStartY = useRef(0);
-  const mainRef = useRef<HTMLDivElement>(null);
+  const refreshTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const pullStartY = useRef<number>(0);
+  const mainRef = useRef<HTMLDivElement | null>(null);
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error" | "info";
@@ -39,8 +34,6 @@ export default function Payments() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const observerTarget = useRef<HTMLDivElement>(null);
-  const [selectedUser, setSelectedUser] = useState<string | null>(null);
-  const [sharedUsers, setSharedUsers] = useState<string[]>([]);
 
   const fetchPayments = async (pageNum: number, append: boolean = false) => {
     try {
@@ -51,29 +44,17 @@ export default function Payments() {
         setIsLoading(true);
       }
 
-      let data;
-      if (!selectedUser) {
-        // When selectedUser is null (My Payments selected)
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/payment?page=${pageNum}&size=20`,
-          {
-            headers: {
-              Authorization: `Bearer ${tokens.accessToken}`,
-            },
-          }
-        );
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/payment?page=${pageNum}&size=20`,
+        {
+          headers: {
+            Authorization: `Bearer ${tokens.accessToken}`,
+          },
+        }
+      );
 
-        if (!response.ok) throw new Error("Failed to fetch my payments");
-        data = await response.json();
-      } else {
-        // When a user is selected (viewing their payments)
-        const response = await getSharedUserPayments(
-          selectedUser,
-          pageNum,
-          tokens.accessToken
-        );
-        data = response.data;
-      }
+      if (!response.ok) throw new Error("Failed to fetch my payments");
+      const data = await response.json();
 
       if (append) {
         setPayments((prev) => [...prev, ...data]);
@@ -313,41 +294,6 @@ export default function Payments() {
     }
   }, [tokens?.accessToken, selectedMonth, filterCurrency]);
 
-  // Load shared users
-  useEffect(() => {
-    if (tokens?.accessToken) {
-      loadSharedUsers();
-    }
-  }, [tokens]);
-
-  const loadSharedUsers = async () => {
-    try {
-      const users = await getSharedToMeUsers(tokens?.accessToken!);
-      setSharedUsers(users);
-    } catch (error) {
-      console.error("Failed to load shared users:", error);
-      setToast({
-        message: "Failed to load users sharing with you",
-        type: "error",
-      });
-    }
-  };
-
-  // Update the user selection handler to properly handle the email
-  const handleUserChange = (selected: string | null) => {
-    let email = null;
-    if (selected) {
-      // Remove "'s Payments" from the end to get the email
-      email = selected.replace("'s Payments", "");
-    }
-
-    console.log("Selected user email:", email); // Debug log
-    setSelectedUser(email);
-    setPage(1);
-    setPayments([]);
-    fetchPayments(1, false);
-  };
-
   if (!user) {
     return null;
   }
@@ -377,18 +323,6 @@ export default function Payments() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <h1 className="text-2xl font-bold">Payments History</h1>
           <div className="flex flex-wrap gap-4 w-full sm:w-auto">
-            <select
-              value={selectedUser ? `${selectedUser}'s Payments` : ""}
-              onChange={(e) => handleUserChange(e.target.value || null)}
-              className="px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            >
-              <option value="">My Payments</option>
-              {sharedUsers.map((email) => (
-                <option key={email} value={`${email}'s Payments`}>
-                  {email}'s Payments
-                </option>
-              ))}
-            </select>
             <DateFilter
               selectedMonth={selectedMonth}
               onMonthChange={setSelectedMonth}
